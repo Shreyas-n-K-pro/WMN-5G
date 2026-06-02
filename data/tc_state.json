@@ -1,0 +1,12 @@
+{
+  "eMBB": {
+    "rate_mbit": 50,
+    "ceil_mbit": 50,
+    "throttled": false
+  },
+  "URLLC": {
+    "rate_mbit": 10,
+    "ceil_mbit": 20,
+    "throttled": false
+  }
+}
