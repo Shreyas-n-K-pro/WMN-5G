@@ -1,0 +1,105 @@
+# Custom Helm Values for Open5GS 5G Standalone Core Deployment on K8s
+global:
+  mcc: "001"
+  mnc: "01"
+  tac: "1"
+  apn: "internet"
+
+mongodb:
+  enabled: true
+  persistence:
+    enabled: false
+  service:
+    port: 27017
+
+nrf:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gradiant/open5gs-nrf
+    tag: latest
+    pullPolicy: IfNotPresent
+
+amf:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gradiant/open5gs-amf
+    tag: latest
+  ngap:
+    sctpPort: 38412
+  service:
+    type: NodePort
+    nodePort: 38412
+
+smf:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gradiant/open5gs-smf
+    tag: latest
+  dns:
+    primary: "8.8.8.8"
+    secondary: "8.8.4.4"
+
+upf:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gradiant/open5gs-upf
+    tag: latest
+  securityContext:
+    privileged: true
+    capabilities:
+      add: ["NET_ADMIN"]
+  interfaces:
+    n3:
+      ip: "10.244.0.12"
+    n6:
+      subnet: "192.168.100.0/24"
+      interfaceName: "ogstun"
+
+udm:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-udm
+    tag: latest
+
+udr:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-udr
+    tag: latest
+
+ausf:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-ausf
+    tag: latest
+
+pcf:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-pcf
+    tag: latest
+
+nssf:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-nssf
+    tag: latest
+
+bsf:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-bsf
+    tag: latest
+
+webui:
+  enabled: true
+  image:
+    repository: gradiant/open5gs-webui
+    tag: latest
+  service:
+    type: LoadBalancer
+    port: 9999

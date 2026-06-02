@@ -1,0 +1,44 @@
+# Helm Values for UERANSIM (gNodeB and UE) Deployment on K8s
+global:
+  mcc: "001"
+  mnc: "01"
+
+gnb:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gradiant/ueransim-gnb
+    tag: latest
+  amf:
+    host: "open5gs-amf"
+    port: 38412
+  interfaces:
+    n2:
+      port: 38412
+    n3:
+      port: 2152
+  securityContext:
+    privileged: true
+    capabilities:
+      add: ["NET_ADMIN"]
+
+ue:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gradiant/ueransim-ue
+    tag: latest
+  gnb:
+    host: "ueransim-gnb"
+    port: 4997
+  subscriber:
+    imsi: "999700000000001"
+    key: "8baf473f2f8fd09487cccbd7097c6862"
+    opc: "11111111111111111111111111111111"
+    apn: "internet"
+    sst: 1
+    sd: "ffffff"
+  securityContext:
+    privileged: true
+    capabilities:
+      add: ["NET_ADMIN"]
