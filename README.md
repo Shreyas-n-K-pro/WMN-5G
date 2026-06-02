@@ -1,8 +1,8 @@
 # ⚡ 5G Core MCP Automation Lab
 
-A state-of-the-art, Model Context Protocol (MCP) orchestrated **5G Standalone (SA) Core Automation and Monitoring Lab** using **Open5GS**, **Docker Compose**, **Python FastMCP**, and **Streamlit**.
+A state-of-the-art, Model Context Protocol (MCP) orchestrated **5G Standalone (SA) Core Automation, Monitoring, and Autonomous Self-Healing Lab** using **Open5GS**, **Docker Compose**, **Python FastMCP**, and **Streamlit**.
 
-This platform provides an end-to-end local 5G lab designed for DevOps and automation testing, featuring direct MongoDB provisioning, real-time control plane signalling sequence simulations, and live GTP-U user plane throughput analytics.
+This platform provides an end-to-end local 5G lab designed for DevOps and automation testing, featuring direct MongoDB provisioning, real-time control plane signalling sequence simulations, live GTP-U user plane throughput analytics, and **ACANS closed-loop SLA enforcement** for autonomous remediation.
 
 ---
 
@@ -40,7 +40,12 @@ Our lab models a fully compliant **5G Service Based Architecture (SBA)** with a 
    - Real-time signaling sequence logs.
    - Core topology, sequence flow, and architecture maps.
    - Interactive subscriber database provisioning forms.
-5. **High-Resolution Vector Graphics**: Dynamic network topology, sequence charts, and throughput heatmaps auto-compiled using Matplotlib and NetworkX.
+5. **ACANS Autonomous Closed-Loop Self-Healing**:
+   - Dedicated **ACANS Dashboard tab** to monitor SLA violations and healing actions.
+   - Integrated service orchestration for **Load Generator**, **SLA Monitor**, and **Agent Loop** daemons.
+   - Congestion/fault injection controls for eMBB flood simulation and live remediation replay.
+   - MTTR tracking and autonomous decision logs for throttle/restore workflows.
+6. **High-Resolution Vector Graphics**: Dynamic network topology, sequence charts, and throughput heatmaps auto-compiled using Matplotlib and NetworkX.
 
 ---
 
@@ -77,6 +82,8 @@ When running the FastMCP server, the following CLI and LLM-ready tools are avail
 | `check_connectivity`| None | Diagnoses MongoDB, AMF, NRF, and UPF port health. |
 | `get_network_topology`| None | Returns full structural JSON config mapping of the 5G Core subnets. |
 | `simulate_registration`| `imsi`, `apn` | Triggers background NAS signaling simulation sequence. |
+| `get_sla_status` | None | Retrieves current SLA violation state and active URLLC alert details from the monitor. |
+| `apply_tc_remediation` | `action`, `slice_name`, `rate_mbit` | Applies dynamic Linux tc shaping (throttle/restore) for slice-level remediation. |
 
 ---
 
@@ -92,10 +99,16 @@ When running the FastMCP server, the following CLI and LLM-ready tools are avail
 ├── base/                         # Open5GS image compilation context
 ├── mcp_server/
 │   └── mcp_server.py             # FastMCP Automation Server
+├── data/                         # Runtime ACANS telemetry, alerts, history, and agent logs
 ├── tools/
 │   ├── subscriber_manager.py     # Direct Mongo CRUD script
 │   ├── ue_simulator.py           # 5G SA signaling state machine
-│   └── generate_visualizations.py # Matplotlib graphics builder
+│   ├── generate_visualizations.py # Matplotlib graphics builder
+│   ├── load_generator.py         # ACANS telemetry and congestion load emulator
+│   ├── sla_monitor.py            # SLA breach detector + recovery history tracker
+│   ├── apply_tc_rules.py         # Linux tc class/qdisc remediation orchestrator
+│   ├── agent_loop.py             # Autonomous closed-loop decision and action daemon
+│   └── test_closed_loop.py       # Programmatic ACANS integration validation
 ├── visualizations/
 │   ├── 5g_call_flow.png          # Visual signaling sequence chart
 │   ├── 5g_network_topology.png   # Active interface topology map
@@ -109,9 +122,24 @@ When running the FastMCP server, the following CLI and LLM-ready tools are avail
 
 ---
 
-## ⚡ Quick Testing Flow
+## ⚡ Quick Testing Flows
 
 1. Run `./run_lab.sh` and select **Mode 3** (Skip container orchestration/Local Sim) and **Service Option 1** (Launch both Streamlit and FastMCP).
 2. Open your browser to `http://localhost:8501` to view the Live 5G Control Center.
 3. Click **Start UE Registration Flow** in the sidebar.
 4. Watch the logs update and the telemetry charts animate in real-time as the simulated UE transitions from `DEREGISTERED` to `PDU_SESSION_ESTABLISHED` and begins transmitting GTP user plane traffic!
+
+### ACANS Closed-Loop Validation
+
+Run the built-in autonomous healing integration flow:
+
+```bash
+python tools/test_closed_loop.py
+```
+
+This test automatically:
+1. Starts `load_generator.py`, `sla_monitor.py`, and `agent_loop.py`.
+2. Injects eMBB congestion and verifies URLLC SLA violation detection.
+3. Confirms autonomous eMBB throttling and RTT recovery below threshold.
+4. Clears congestion and validates de-escalation (restore to baseline).
+5. Prints MTTR history and latest autonomous reasoning/action logs.
