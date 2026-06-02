@@ -6,6 +6,11 @@ import time
 import json
 import os
 import subprocess
+import signal
+import glob
+import random
+from datetime import datetime
+import sys
 from tools.subscriber_manager import list_subscribers, add_subscriber, delete_subscriber
 
 # Page Configuration for Sleek Modern Look
@@ -60,19 +65,13 @@ st.markdown("""
         letter-spacing: 0.1rem;
     }
     </style>
-    """, unsafe_allow_value=True)
+    """, unsafe_allow_html=True)
 
-STATE_FILE = "/home/shreyas-k/.gemini/antigravity/scratch/5g-mcp-automation/visualizations/simulation_state.json"
-VIS_DIR = "/home/shreyas-k/.gemini/antigravity/scratch/5g-mcp-automation/visualizations"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(_BASE_DIR, "visualizations", "simulation_state.json")
+VIS_DIR = os.path.join(_BASE_DIR, "visualizations")
 
-def load_simulation_state():
-    """Loads current simulation state from the JSON state file."""
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
+def _default_state():
     return {
         "imsi": "999700000000001",
         "state": "DEREGISTERED",
@@ -82,38 +81,170 @@ def load_simulation_state():
         "metrics": {"tx_packets": 0, "rx_packets": 0, "tx_bytes": 0, "rx_bytes": 0, "latency_ms": 0, "dl_mbps": 0, "ul_mbps": 0}
     }
 
+def list_simulation_state_files():
+    # include the legacy single file plus any sim_*.json files
+    files = []
+    try:
+        files.extend(glob.glob(os.path.join(VIS_DIR, "sim_*.json")))
+        if os.path.exists(STATE_FILE):
+            files.append(STATE_FILE)
+    except Exception:
+        pass
+    # sort by modification time descending
+    files = sorted(files, key=lambda p: os.path.getmtime(p), reverse=True)
+    return files
+
+def load_simulation_state(path=None):
+    """Loads simulation state JSON from provided path, or the latest available."""
+    if path:
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return _default_state()
+
+    files = list_simulation_state_files()
+    if files:
+        try:
+            with open(files[0], "r") as f:
+                return json.load(f)
+        except Exception:
+            return _default_state()
+    return _default_state()
+
+def load_all_simulation_states():
+    states = []
+    for p in list_simulation_state_files():
+        try:
+            with open(p, "r") as f:
+                data = json.load(f)
+                data["_path"] = p
+                data["_mtime"] = os.path.getmtime(p)
+                states.append(data)
+        except Exception:
+            continue
+    return states
+
+def ensure_session_state():
+    if 'sim_procs' not in st.session_state:
+        st.session_state['sim_procs'] = {}  # key -> {pid, state_file, imsi, started_at}
+
 # ==========================================
 # Sidebar Controls & Orchestration
 # ==========================================
-st.sidebar.markdown("<h2 style='color:#06B6D4; font-weight:800;'>⚡ 5G LAB CONTROL</h2>", unsafe_allow_value=True)
+st.sidebar.markdown("<h2 style='color:#06B6D4; font-weight:800;'>⚡ 5G LAB CONTROL</h2>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("### 🛠️ Lab Node Operations")
 if st.sidebar.button("🚀 Re-build Visualizations", use_container_width=True):
     with st.spinner("Generating diagrams..."):
         try:
-            subprocess.run(["python3", "tools/generate_visualizations.py"], check=True)
+            subprocess.run([sys.executable, "tools/generate_visualizations.py"], check=True)
             st.sidebar.success("✓ Visualizations Updated!")
         except Exception as e:
             st.sidebar.error(f"Error: {e}")
 
 st.sidebar.markdown("### 📱 UE Signal Simulator")
+ensure_session_state()
 sim_imsi = st.sidebar.text_input("Simulate IMSI", value="999700000000001")
 sim_apn = st.sidebar.text_input("PDU APN Context", value="internet")
+sim_cycles = st.sidebar.number_input("Traffic cycles", min_value=1, max_value=1000, value=30)
+sim_key = st.sidebar.text_input("USIM Key (K)", value="8baf473f2f8fd09487cccbd7097c6862")
+sim_opc = st.sidebar.text_input("OPc", value="11111111111111111111111111111111")
+poll_enable = st.sidebar.checkbox("Auto-refresh dashboard", value=True)
+poll_interval = st.sidebar.slider("Poll interval (seconds)", min_value=1, max_value=10, value=3)
+
+def start_simulation(imsi, apn, cycles, key, opc):
+    # create unique state file for this sim
+    ts = int(time.time())
+    uid = f"{imsi}_{ts}_{random.randint(1000,9999)}"
+    state_file = os.path.join(VIS_DIR, f"sim_{uid}.json")
+    args = [sys.executable, "tools/ue_simulator.py", "--imsi", imsi, "--apn", apn, "--cycles", str(cycles), "--state-file", state_file, "--key", key, "--opc", opc]
+    proc = subprocess.Popen(args)
+    st.session_state['sim_procs'][str(proc.pid)] = {
+        "pid": proc.pid,
+        "state_file": state_file,
+        "imsi": imsi,
+        "apn": apn,
+        "cycles": cycles,
+        "started_at": ts
+    }
+    return proc.pid
+
+def stop_simulation(pid):
+    try:
+        os.kill(int(pid), signal.SIGINT)
+        time.sleep(0.2)
+    except Exception:
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except Exception:
+            pass
+    # remove from session state if present
+    st.session_state['sim_procs'].pop(str(pid), None)
 
 if st.sidebar.button("▶️ Start UE Registration Flow", use_container_width=True):
-    st.sidebar.info("Simulating Call Flow in background...")
-    # Launch simulation as background task
-    subprocess.Popen(["python3", "tools/ue_simulator.py", "--imsi", sim_imsi, "--apn", sim_apn])
+    st.sidebar.info("Starting UE simulation in background...")
+    try:
+        pid = start_simulation(sim_imsi, sim_apn, sim_cycles, sim_key, sim_opc)
+        st.sidebar.success(f"Started simulation (pid={pid})")
+    except Exception as e:
+        st.sidebar.error(f"Failed to start simulator: {e}")
+
+# Active simulations list and controls
+if st.session_state.get('sim_procs'):
+    st.sidebar.markdown("#### Active Simulations")
+    remove_pid = None
+    for pid, info in list(st.session_state['sim_procs'].items()):
+        started = datetime.fromtimestamp(info['started_at']).strftime('%Y-%m-%d %H:%M:%S')
+        st.sidebar.markdown(f"- **IMSI**: {info['imsi']} • **PID**: {pid} • started: {started}")
+        if st.sidebar.button(f"⏹️ Stop {pid}", key=f"stop_{pid}"):
+            stop_simulation(pid)
+            st.sidebar.info(f"Stopping {pid}...")
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🧹 Clear finished simulation records", use_container_width=True):
+        # remove entries whose process no longer exists
+        to_remove = []
+        for pid, info in list(st.session_state['sim_procs'].items()):
+            try:
+                os.kill(int(pid), 0)
+            except Exception:
+                to_remove.append(pid)
+        for p in to_remove:
+            st.session_state['sim_procs'].pop(p, None)
+        st.sidebar.success("Cleared finished records")
+
+# Polling auto-refresh behavior
+if poll_enable:
+    time.sleep(poll_interval)
+    # some Streamlit versions removed `experimental_rerun`; use query param tweak to force rerun
+    try:
+        st.experimental_set_query_params(_r=int(time.time()))
+    except Exception:
+        # fallback: try the old name if available
+        try:
+            st.experimental_rerun()
+        except Exception:
+            pass
 
 # ==========================================
 # Main Dashboard UI Layout
 # ==========================================
-st.markdown("<h1 class='main-title'>5G Core Lab Automation Control Center</h1>", unsafe_allow_value=True)
-st.markdown("<p style='color:#64748B; font-size:1.1rem; margin-top:-0.5rem;'>Model Context Protocol (MCP) Orchestrated Open5GS Network Management</p>", unsafe_allow_value=True)
+st.markdown("<h1 class='main-title'>5G Core Lab Automation Control Center</h1>", unsafe_allow_html=True)
+st.markdown("<p style='color:#64748B; font-size:1.1rem; margin-top:-0.5rem;'>Model Context Protocol (MCP) Orchestrated Open5GS Network Management</p>", unsafe_allow_html=True)
 
 # Load current state
-state = load_simulation_state()
+all_states = load_all_simulation_states()
+select_options = ["Latest"] + [f"{os.path.basename(s.get('_path',''))} | IMSI:{s.get('imsi','?')}" for s in all_states]
+selected = st.selectbox("Select simulation to view", options=select_options, index=0)
+if selected == "Latest":
+    state = load_simulation_state()
+else:
+    # find the matching path
+    fname = selected.split(" | ")[0]
+    target = os.path.join(VIS_DIR, fname)
+    state = load_simulation_state(path=target)
 
 # Live Stats / Telemetry Cards
 col1, col2, col3, col4 = st.columns(4)
@@ -123,21 +254,21 @@ with col1:
             <div class='metric-label'>Subscriber State</div>
             <div class='metric-value' style='color:#06B6D4;'>{state.get("state", "UNKNOWN")}</div>
         </div>
-        """, unsafe_allow_value=True)
+        """, unsafe_allow_html=True)
 with col2:
     st.markdown(f"""
         <div class='metric-card'>
             <div class='metric-label'>Assigned UE IP</div>
-            <div class='metric-value' style='color:#F59E0B;'>{state.get("ue_ip", "0.0.0.0")}</div>
+            <div class='metric-value' style='color:#F59E0B;'>{(state.get("ue_ip") if state.get("ue_ip") and state.get("ue_ip")!="0.0.0.0" else '—')}</div>
         </div>
-        """, unsafe_allow_value=True)
+        """, unsafe_allow_html=True)
 with col3:
     st.markdown(f"""
         <div class='metric-card'>
             <div class='metric-label'>Active Slice APN</div>
             <div class='metric-value' style='color:#EC4899;'>{state.get("apn", "internet")}</div>
         </div>
-        """, unsafe_allow_value=True)
+        """, unsafe_allow_html=True)
 with col4:
     metrics = state.get("metrics", {})
     lat = metrics.get("latency_ms", 0)
@@ -146,9 +277,9 @@ with col4:
             <div class='metric-label'>GTP Tunnel Latency</div>
             <div class='metric-value'>{lat} ms</div>
         </div>
-        """, unsafe_allow_value=True)
+        """, unsafe_allow_html=True)
 
-st.markdown("<div class='section-title'>📡 Live Core Network Topology</div>", unsafe_allow_value=True)
+st.markdown("<div class='section-title'>📡 Live Core Network Topology</div>", unsafe_allow_html=True)
 
 tab_top, tab_flow, tab_heatmap, tab_arch = st.tabs([
     "🌐 Service Topology", "🔄 5G Signalling Sequence Flow", "🔥 Slice Traffic Heatmap", "🏗️ SBA Architecture Map"
@@ -170,14 +301,14 @@ with tab_flow:
         else:
             st.warning("Call flow image not found.")
     with col_log:
-        st.markdown("<h4 style='color:#06B6D4;'>📜 Live Signalling Event Stream</h4>", unsafe_allow_value=True)
+        st.markdown("<h4 style='color:#06B6D4;'>📜 Live Signalling Event Stream</h4>", unsafe_allow_html=True)
         logs = state.get("logs", [])
         if logs:
             for log in reversed(logs):
                 st.markdown(f"**`{log.get('timestamp', '')}`** | `{log.get('source', '')}` ➔ `{log.get('destination', '')}`")
                 st.info(f"{log.get('message', '')}")
         else:
-            st.markdown("<p style='color:#64748B;'>No active signalling events recorded. Start registration in the sidebar.</p>", unsafe_allow_value=True)
+            st.markdown("<p style='color:#64748B;'>No active signalling events recorded. Start registration in the sidebar.</p>", unsafe_allow_html=True)
 
 with tab_heatmap:
     heat_path = f"{VIS_DIR}/traffic_heatmap.png"
@@ -196,7 +327,7 @@ with tab_arch:
 # ==========================================
 # Real-Time Telemetry Performance Charts
 # ==========================================
-st.markdown("<div class='section-title'>📈 Live GTP User Plane Telemetry</div>", unsafe_allow_value=True)
+st.markdown("<div class='section-title'>📈 Live GTP User Plane Telemetry</div>", unsafe_allow_html=True)
 col_chart1, col_chart2 = st.columns(2)
 
 with col_chart1:
@@ -222,7 +353,7 @@ with col_chart2:
 # ==========================================
 # Subscriber CRUD Management Grid
 # ==========================================
-st.markdown("<div class='section-title'>👥 Subscriber DB Administration</div>", unsafe_allow_value=True)
+st.markdown("<div class='section-title'>👥 Subscriber DB Administration</div>", unsafe_allow_html=True)
 
 col_grid, col_crud = st.columns([2, 1])
 
@@ -235,7 +366,7 @@ with col_grid:
             # Style the dataframe beautifully
             st.dataframe(df, use_container_width=True)
         else:
-            st.markdown("<p style='color:#64748B;'>No subscribers found in database.</p>", unsafe_allow_value=True)
+            st.markdown("<p style='color:#64748B;'>No subscribers found in database.</p>", unsafe_allow_html=True)
     except Exception as e:
         st.error(f"Cannot connect to MongoDB on localhost:27017. Ensure 'mongo' container is running: {e}")
 

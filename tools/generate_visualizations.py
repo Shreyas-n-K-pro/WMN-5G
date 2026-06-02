@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Create visualizations folder
-OUTPUT_DIR = "/home/shreyas-k/.gemini/antigravity/scratch/5g-mcp-automation/visualizations"
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "visualizations")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Custom color palette for premium dark-mode look

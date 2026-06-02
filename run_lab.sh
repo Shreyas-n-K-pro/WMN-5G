@@ -11,7 +11,7 @@ RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0;0m'
 
-clear
+
 echo -e "${CYAN}${BOLD}======================================================================${NC}"
 echo -e "${CYAN}${BOLD}     ⚡  5G CORE AUTOMATION LAB ORCHESTRATOR & MCP CONTROL  ⚡${NC}"
 echo -e "${CYAN}${BOLD}======================================================================${NC}"
@@ -28,7 +28,7 @@ echo -e "${BOLD}[Phase 1] Checking Core System Dependencies...${NC}"
 
 # Docker
 if command -v docker &> /dev/null; then
-    echo -e "  ✓ Docker: ${GREEN}Detected (${$(docker --version)%%,*})${NC}"
+    echo -e "  ✓ Docker: ${GREEN}Detected ($(docker --version | awk '{print $3}' | tr -d ','))${NC}"
 else
     echo -e "  ✗ Docker: ${RED}Not found! Please install docker.${NC}"
 fi
@@ -141,7 +141,8 @@ case "$LAUNCH_MODE" in
         echo -e "\n${BOLD}Starting Streamlit Dashboard and FastMCP server...${NC}"
         # Start Streamlit
         echo -e "${GREEN}→ Launching Streamlit on http://localhost:8501${NC}"
-        nohup $PYTHON -m streamlit run streamlit_dashboard.py --server.port 8501 > streamlit.log 2>&1 &
+        export STREAMLIT_EMAIL=""
+        nohup $PYTHON -m streamlit run streamlit_dashboard.py --server.port 8501 --server.headless true > streamlit.log 2>&1 &
         
         # Start MCP Server
         echo -e "${GREEN}→ Launching FastMCP Server on http://localhost:8000 (SSE Transport)${NC}"
@@ -152,7 +153,8 @@ case "$LAUNCH_MODE" in
     2)
         echo -e "\n${BOLD}Starting Streamlit Dashboard...${NC}"
         echo -e "${GREEN}→ Launching Streamlit on http://localhost:8501${NC}"
-        $PYTHON -m streamlit run streamlit_dashboard.py --server.port 8501
+        export STREAMLIT_EMAIL=""
+        $PYTHON -m streamlit run streamlit_dashboard.py --server.port 8501 --server.headless true
         ;;
     3)
         echo -e "\n${BOLD}Starting FastMCP Server...${NC}"

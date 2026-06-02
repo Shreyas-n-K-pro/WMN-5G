@@ -5,10 +5,10 @@ import random
 import os
 import argparse
 
-STATE_FILE = "/home/shreyas-k/.gemini/antigravity/scratch/5g-mcp-automation/visualizations/simulation_state.json"
+DEFAULT_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "visualizations", "simulation_state.json")
 
 class UE5GSimulator:
-    def __init__(self, imsi="999700000000001", key="8baf473f2f8fd09487cccbd7097c6862", opc="11111111111111111111111111111111"):
+    def __init__(self, imsi="999700000000001", key="8baf473f2f8fd09487cccbd7097c6862", opc="11111111111111111111111111111111", state_file=None):
         self.imsi = imsi
         self.key = key
         self.opc = opc
@@ -18,6 +18,8 @@ class UE5GSimulator:
         self.logs = []
         self.metrics = {"tx_packets": 0, "rx_packets": 0, "tx_bytes": 0, "rx_bytes": 0, "latency_ms": 0}
         self.is_running = False
+        # allow per-simulation state file so multiple sims can run concurrently
+        self.state_file = state_file or DEFAULT_STATE_FILE
 
     def log(self, message, source="UE", destination="gNB"):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -43,8 +45,8 @@ class UE5GSimulator:
             "timestamp": time.time()
         }
         try:
-            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-            with open(STATE_FILE, "w") as f:
+            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+            with open(self.state_file, "w") as f:
                 json.dump(state_data, f, indent=2)
         except Exception as e:
             pass
@@ -196,10 +198,11 @@ if __name__ == "__main__":
     parser.add_argument("--opc", default="11111111111111111111111111111111", help="OPc (32 hex)")
     parser.add_argument("--apn", default="internet", help="Access Point Name")
     parser.add_argument("--cycles", type=int, default=15, help="Number of traffic simulator cycles")
+    parser.add_argument("--state-file", default=None, help="Path to write simulation state JSON")
     
     args = parser.parse_args()
     
-    sim = UE5GSimulator(args.imsi, args.key, args.opc)
+    sim = UE5GSimulator(args.imsi, args.key, args.opc, state_file=(args.state_file or None))
     sim.apn = args.apn
     
     try:
