@@ -325,6 +325,44 @@ def simulate_registration(imsi: str, apn: str = "internet") -> str:
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
+@mcp.tool()
+def get_sla_status() -> str:
+    """
+    Retrieves the current SLA violation status and active alerts from the network monitor.
+    """
+    try:
+        alert_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/alert_state.json"))
+        if not os.path.exists(alert_path):
+            return json.dumps({"violation_active": False, "violations": []}, indent=2)
+        with open(alert_path, "r") as f:
+            return json.dumps(json.load(f), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+@mcp.tool()
+def apply_tc_remediation(action: str, slice_name: str, rate_mbit: Optional[int] = None) -> str:
+    """
+    Applies dynamic traffic control shaping to remediate SLA degradation on a slice.
+    - action: 'throttle' (apply rate limiting) or 'restore' (reset to baseline)
+    - slice_name: 'eMBB' or 'URLLC'
+    - rate_mbit: optional rate ceiling in Mbps
+    """
+    try:
+        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../tools/apply_tc_rules.py"))
+        cmd = [sys.executable, script_path, "--action", action, "--slice", slice_name]
+        if rate_mbit is not None:
+            cmd += ["--rate", str(rate_mbit)]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return json.dumps({
+            "status": "success" if result.returncode == 0 else "failed",
+            "exit_code": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip()
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
 if __name__ == "__main__":
     print("Starting 5G Core MCP Automation Server...")
     mcp.run()
